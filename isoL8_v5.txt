@@ -1,0 +1,648 @@
+
+
+[ISP]
+
+hostname ISP
+
+int g0/0
+ip address 20.30.40.2 255.255.255.252
+no shut
+
+
+int g0/1
+ip address 30.40.50.2 255.255.255.252
+no shut
+
+int g0/2
+ip address 40.50.60.2 255.255.255.252
+no shut
+
+
+router ospf 1
+network 20.30.40.0 255.255.255.252 area 0
+network 30.40.50.0 255.255.255.252 area 0
+network 40.50.60.0 255.255.255.252 area 0
+
+
+-----------------------------------
+
+[Core]
+
+hostname Core
+
+int g0/1
+ip address 150.2.3.1 255.255.255.0
+no shut
+
+int g0/0
+no shut
+
+int g0/0.10
+encapsulation dot1q 10
+ip address 172.16.0.1 255.255.255.252
+no shut
+
+int g0/0.20
+encapsulation dot1q 20
+ip address 172.16.0.5 255.255.255.252
+no shut
+
+ip route 10.77.0.0 255.255.255.0 172.16.0.2
+
+-------------------------------------
+
+[Cust_10]
+hostname Cust_10
+
+int g0/0
+ip address 30.40.50.1 255.255.255.252
+no shut
+
+int g0/1
+ip address 10.254.254.1 255.255.255.248
+no shut
+
+router ospf 1
+network 30.40.50.0 255.255.255.252 area 0
+
+interface tunnel 10
+ip address 192.168.0.2 255.255.255.252
+tunnel source gi0/0
+tunnel destination 20.30.40.1
+tunnel mode gre ip
+no shutdown
+
+ip route 150.2.3.0 255.255.255.0 tunnel 10
+
+-------------------------------
+
+[Cust_20]
+
+hostname Cust_20
+
+int g0/0
+ip address 40.50.60.1 255.255.255.252
+no shut
+
+int g0/1
+ip address 10.254.254.1 255.255.255.248
+no shut
+
+router ospf 1
+network 40.50.60.0 255.255.255.252 area 0
+
+#phase 1 proposal and policy
+crypto ikev2 proposal gcm256_prf-sha512_dh-21
+encryption aes-gcm-256
+prf sha512
+group 21
+
+crypto ikev2 policy 1
+proposal gcm256_prf-sha512_dh-21
+
+#phase 2 transform set
+crypto ipsec transform-set gcm256 esp-gcm 256
+
+#ikev2 keyring 
+crypto ikev2 keyring HQ_IKEv2_Keyring
+peer HQ_IKEv2_Peer
+address 20.30.40.1 255.255.255.255
+pre-shared-key test123
+
+#ikev2 profile
+crypto ikev2 profile HQ_IKEv2_Profile
+match identity remote address 20.30.40.1
+authentication local pre-share
+authentication remote pre-share
+keyring local HQ_IKEv2_Keyring
+
+#ipsec profile
+crypto ipsec profile HQ_IKEv2_gcm256
+set transform-set gcm256
+set ikev2-profile HQ_IKEv2_Profile
+
+
+#tunnel interface
+interface tunnel 20
+ip address 192.168.0.6 255.255.255.252
+tunnel mode ipsec ipv4
+tunnel source gi0/0
+tunnel destination 20.30.40.1
+tunnel protection ipsec profile HQ_IKEv2_gcm256
+
+ip route 150.2.3.0 255.255.255.0 tunnel 20
+
+-------------------------------
+
+
+[VRFs]
+
+hostname VRFs
+
+int g1
+no shut
+
+vrf definition VRF_10_LEFT
+rd 1:1
+address-family ipv4
+exit-address-family
+ 
+vrf definition VRF_10_RIGHT
+rd 2:2 
+address-family ipv4
+exit-address-family
+
+int g1.10
+ip nat outside
+encapsulation dot1q 10
+vrf forwarding VRF_10_LEFT
+ip address 172.16.0.2 255.255.255.252
+no shut
+
+
+int g2
+ip address 20.30.40.1 255.255.255.252
+no shut
+
+int vasileft10
+vrf forwarding VRF_10_LEFT
+ip address 10.77.0.1 255.255.255.248
+ip nat inside
+
+int vasiright10
+vrf forwarding VRF_10_RIGHT
+ip address 10.77.0.6 255.255.255.248
+
+#ingress traffic w/ destination 10.77.x.x from core - point to vasileft10
+ip route 10.77.0.0 255.255.255.248 vasileft10 10.77.0.1
+
+#vasi pair routing
+ip route vrf VRF_10_LEFT 10.254.254.0 255.255.255.248 vasileft10 10.77.0.6
+ip route vrf VRF_10_RIGHT 150.2.3.0 255.255.255.0 vasiright10 10.77.0.1
+
+#egress traffic to core w/ destination 150.2.3.x
+ip route vrf VRF_10_LEFT 150.2.3.0 255.255.255.0 172.16.0.1
+
+#translate customer host from 10.77.x.x to native IP 
+ip nat inside source static 10.254.254.2 10.77.0.2 vrf VRF_10_LEFT
+
+#tunnel interface to cust10
+interface tunnel 10
+description to Cust_10
+tunnel source g2
+tunnel destination 30.40.50.1
+tunnel mode gre ip
+vrf forwarding VRF_10_RIGHT
+ip address 192.168.0.1 255.255.255.252
+no shut
+
+#route statement for cust10 remote network - point to tunnel10
+ip route vrf VRF_10_RIGHT 10.254.254.0 255.255.255.248 tunnel 10
+
+#static route to cust10 via ISP
+ip route 30.40.50.0 255.255.255.252 GigabitEthernet2 20.30.40.2
+
+vrf definition VRF_20_LEFT
+rd 3:3
+address-family ipv4
+exit-address-family
+ 
+vrf definition VRF_20_RIGHT
+rd 4:4 
+address-family ipv4
+exit-address-family
+
+int g1.20
+ip nat outside
+encapsulation dot1q 20
+vrf forwarding VRF_20_LEFT
+ip address 172.16.0.6 255.255.255.252
+no shut
+
+#phase 1 proposal and policy
+crypto ikev2 proposal gcm256_prf-sha512_dh-21
+encryption aes-gcm-256
+prf sha512
+group 21
+
+crypto ikev2 policy 1
+proposal gcm256_prf-sha512_dh-21
+
+#phase 2 transform set
+crypto ipsec transform-set gcm256 esp-gcm 256
+
+#ikev2 keyring 
+crypto ikev2 keyring Cust_20_IKEv2_Keyring
+peer Cust_20_IKEv2_Peer
+address 40.50.60.1 255.255.255.255
+pre-shared-key test123
+
+#ikev2 profile
+crypto ikev2 profile Cust_20_IKEv2_Profile
+match identity remote address 40.50.60.1
+authentication local pre-share
+authentication remote pre-share
+keyring local Cust_20_IKEv2_Keyring
+
+#ipsec profile
+crypto ipsec profile Cust_20_IKEv2_gcm256
+set transform-set gcm256
+set ikev2-profile Cust_20_IKEv2_Profile
+
+
+#tunnel interface
+interface tunnel 20
+tunnel mode ipsec ipv4
+tunnel source g2
+tunnel destination 40.50.60.1
+vrf forwarding VRF_20_RIGHT
+ip address 192.168.0.5 255.255.255.252
+tunnel protection ipsec profile Cust_20_IKEv2_gcm256
+no shutdown
+
+ip route vrf VRF_20_RIGHT 10.254.254.0 255.255.255.248 tunnel 20
+
+int vasileft20
+vrf forwarding VRF_20_LEFT
+ip address 10.77.0.9 255.255.255.248
+ip nat inside
+
+int vasiright20
+vrf forwarding VRF_20_RIGHT
+ip address 10.77.0.14 255.255.255.248
+
+#ingress traffic w/ destination 10.77.x.x from core - point to vasileft10
+ip route 10.77.0.8 255.255.255.248 vasileft20 10.77.0.9
+
+
+#vasi pair routing
+ip route vrf VRF_20_LEFT 10.254.254.0 255.255.255.248 vasileft20 10.77.0.14
+ip route vrf VRF_20_RIGHT 150.2.3.0 255.255.255.0 vasiright20 10.77.0.9
+
+#egress traffic to core w/ destination 150.2.3.x
+ip route vrf VRF_20_LEFT 150.2.3.0 255.255.255.0 172.16.0.5
+
+#translate customer host from 10.77.x.x to native IP 
+ip nat inside source static 10.254.254.2 10.77.0.10 vrf VRF_20_LEFT
+
+#static route to cust20 via ISP
+ip route 40.50.60.0 255.255.255.252 GigabitEthernet2 20.30.40.2
+
+
+-----------------------------
+
+VRFs#sho run
+Building configuration...
+
+Current configuration : 9080 bytes
+!
+! Last configuration change at 04:21:59 UTC Thu Jul 6 2023
+!
+version 17.3
+service timestamps debug datetime msec
+service timestamps log datetime msec
+! Call-home is enabled by Smart-Licensing.
+service call-home
+platform qfp utilization monitor load 80
+platform punt-keepalive disable-kernel-core
+platform console serial
+!
+hostname VRFs
+!
+boot-start-marker
+boot-end-marker
+!
+!
+vrf definition VRF_10_LEFT
+ rd 1:1
+ !
+ address-family ipv4
+ exit-address-family
+!
+vrf definition VRF_10_RIGHT
+ rd 2:2
+ !
+ address-family ipv4
+ exit-address-family
+!
+vrf definition VRF_20_LEFT
+ rd 3:3
+ !
+ address-family ipv4
+ exit-address-family
+!
+vrf definition VRF_20_RIGHT
+ rd 4:4
+ !
+ address-family ipv4
+ exit-address-family
+!
+!
+no aaa new-model
+!         
+!
+!
+!
+!
+!
+!
+!
+!
+!
+login on-success log
+!
+!
+!
+!
+!
+!
+!
+subscriber templating
+! 
+! 
+! 
+! 
+!         
+!
+multilink bundle-name authenticated
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+crypto pki trustpoint SLA-TrustPoint
+ enrollment pkcs12
+ revocation-check crl
+!
+crypto pki trustpoint TP-self-signed-2656813756
+ enrollment selfsigned
+ subject-name cn=IOS-Self-Signed-Certificate-2656813756
+ revocation-check none
+ rsakeypair TP-self-signed-2656813756
+!
+!
+crypto pki certificate chain SLA-TrustPoint
+ certificate ca 01
+  30820321 30820209 A0030201 02020101 300D0609 2A864886 F70D0101 0B050030 
+  32310E30 0C060355 040A1305 43697363 6F312030 1E060355 04031317 43697363 
+  6F204C69 63656E73 696E6720 526F6F74 20434130 1E170D31 33303533 30313934 
+  3834375A 170D3338 30353330 31393438 34375A30 32310E30 0C060355 040A1305 
+  43697363 6F312030 1E060355 04031317 43697363 6F204C69 63656E73 696E6720 
+  526F6F74 20434130 82012230 0D06092A 864886F7 0D010101 05000382 010F0030 
+  82010A02 82010100 A6BCBD96 131E05F7 145EA72C 2CD686E6 17222EA1 F1EFF64D 
+  CBB4C798 212AA147 C655D8D7 9471380D 8711441E 1AAF071A 9CAE6388 8A38E520 
+  1C394D78 462EF239 C659F715 B98C0A59 5BBB5CBD 0CFEBEA3 700A8BF7 D8F256EE 
+  4AA4E80D DB6FD1C9 60B1FD18 FFC69C96 6FA68957 A2617DE7 104FDC5F EA2956AC 
+  7390A3EB 2B5436AD C847A2C5 DAB553EB 69A9A535 58E9F3E3 C0BD23CF 58BD7188 
+  68E69491 20F320E7 948E71D7 AE3BCC84 F10684C7 4BC8E00F 539BA42B 42C68BB7 
+  C7479096 B4CB2D62 EA2F505D C7B062A4 6811D95B E8250FC4 5D5D5FB8 8F27D191 
+  C55F0D76 61F9A4CD 3D992327 A8BB03BD 4E6D7069 7CBADF8B DF5F4368 95135E44 
+  DFC7C6CF 04DD7FD1 02030100 01A34230 40300E06 03551D0F 0101FF04 04030201 
+  06300F06 03551D13 0101FF04 05300301 01FF301D 0603551D 0E041604 1449DC85 
+  4B3D31E5 1B3E6A17 606AF333 3D3B4C73 E8300D06 092A8648 86F70D01 010B0500 
+  03820101 00507F24 D3932A66 86025D9F E838AE5C 6D4DF6B0 49631C78 240DA905 
+  604EDCDE FF4FED2B 77FC460E CD636FDB DD44681E 3A5673AB 9093D3B1 6C9E3D8B 
+  D98987BF E40CBD9E 1AECA0C2 2189BB5C 8FA85686 CD98B646 5575B146 8DFC66A8 
+  467A3DF4 4D565700 6ADF0F0D CF835015 3C04FF7C 21E878AC 11BA9CD2 55A9232C 
+  7CA7B7E6 C1AF74F6 152E99B7 B1FCF9BB E973DE7F 5BDDEB86 C71E3B49 1765308B 
+  5FB0DA06 B92AFE7F 494E8A9E 07B85737 F3A58BE1 1A48A229 C37C1E69 39F08678 
+  80DDCD16 D6BACECA EEBC7CF9 8428787B 35202CDC 60E4616A B623CDBD 230E3AFB 
+  418616A9 4093E049 4D10AB75 27E86F73 932E35B5 8862FDAE 0275156F 719BB2F0 
+  D697DF7F 28
+        quit
+crypto pki certificate chain TP-self-signed-2656813756
+ certificate self-signed 01
+  30820330 30820218 A0030201 02020101 300D0609 2A864886 F70D0101 05050030 
+  31312F30 2D060355 04031326 494F532D 53656C66 2D536967 6E65642D 43657274 
+  69666963 6174652D 32363536 38313337 3536301E 170D3233 30373036 30343133 
+  31345A17 0D333330 37303530 34313331 345A3031 312F302D 06035504 03132649 
+  4F532D53 656C662D 5369676E 65642D43 65727469 66696361 74652D32 36353638 
+  31333735 36308201 22300D06 092A8648 86F70D01 01010500 0382010F 00308201 
+  0A028201 0100BB63 DEE3CE82 4116110F 2384C5C2 C4F45CA2 3C90CA1F 81DF4D01 
+  6CCAC327 AC4A368F 3E62718E F6C32001 88029D21 4921F40E 1EDF8F0F CE95D77E 
+  0018ABC1 A93BD97D 85163896 34B4A5C2 C174D7C6 A6F892EC C7BCF1D1 CAFC69F2 
+  03EA2F48 42666C03 B0A106E1 52B1DF3E 47109FDE 25370D0F 05667BF8 688B0B14 
+  E718D36A 176D2D48 C0B526D7 B8DFE49E 3D0E09A4 B9D84742 E9C1C1D3 6915062E 
+  ED6C65F8 A0E5DA2C 390DE9BD 4CD0425C 843C7EC5 292EB1D0 00E05A31 079F15C9 
+  10C4A1EA 72C0F104 EBB01E46 A8F3CA37 72D560AB 90E641B9 E884DEC5 2AC0B6AD 
+  B3378743 F2AEBC2B A3B4924D AA09A2A0 61403E28 D7B2DA35 F4C38BE8 A3AA303B 
+  7FD5E6AA 3F650203 010001A3 53305130 0F060355 1D130101 FF040530 030101FF 
+  301F0603 551D2304 18301680 145ECFA2 87D1AFEE 0D6D0843 9F5B474A BD5D38E5 
+  3D301D06 03551D0E 04160414 5ECFA287 D1AFEE0D 6D08439F 5B474ABD 5D38E53D 
+  300D0609 2A864886 F70D0101 05050003 82010100 2DA85BFF 677715AD B0517842 
+  90B209C5 7514408E B9AB9D39 18856727 622FCBE5 11694A12 E31C27B3 17832A75 
+  5C5EC421 1BD9D79E DB7AD5C6 6940B0B4 0EADC91C DD880D37 EE5E9A4B 21CA1CF4 
+  322959E8 AC139730 DBCA8F6C 130E3486 8E6C9E53 E253BE2C 3F535A44 BC62DAB6 
+  E5B78A7A 79D306F1 24125593 B9C2C691 1C0821E8 DC0AC668 413F8BE9 464CF426 
+  9C0BA4AE E887E2FA C5CD3349 FF9FDE7F A712410F 67F6E73F 536A3475 31F75DF7 
+  7DF9EDAB CAB38A69 2CCBDA46 874A80B3 8CD8C3FC 3ADF956B AD935AE8 6E98F107 
+  15C128C9 69870947 68BF4DD4 84FB5714 ADED47C8 BDCB3859 7B615396 1489D4E4 
+  0F878ADE DCC34785 B54AB299 B1C49E54 9407D19A
+        quit
+!
+license udi pid CSR1000V sn 9Q9G9MPZ5KF
+diagnostic bootup level minimal
+memory free low-watermark processor 71465
+!
+!         
+spanning-tree extend system-id
+!
+!
+redundancy
+!
+!
+crypto ikev2 proposal gcm256_prf-sha512_dh-21 
+ encryption aes-gcm-256
+ prf sha512
+ group 21
+!
+crypto ikev2 policy 1 
+ proposal gcm256_prf-sha512_dh-21
+!
+crypto ikev2 keyring Cust_20_IKEv2_Keyring
+ peer Cust_20_IKEv2_Peer
+  address 40.50.60.1
+  pre-shared-key test123
+ !
+!
+!
+crypto ikev2 profile Cust_20_IKEv2_Profile
+ match identity remote address 40.50.60.1 255.255.255.255 
+ authentication remote pre-share
+ authentication local pre-share
+ keyring local Cust_20_IKEv2_Keyring
+!
+!
+!
+!
+! 
+!
+!
+!
+!
+!
+!
+!
+!
+crypto ipsec transform-set gcm256 esp-gcm 256 
+ mode tunnel
+!
+crypto ipsec profile Cust_20_IKEv2_gcm256
+ set transform-set gcm256 
+ set ikev2-profile Cust_20_IKEv2_Profile
+!         
+!
+!
+!
+!
+!
+! 
+! 
+!
+!
+interface Tunnel10
+ description to Cust_10
+ vrf forwarding VRF_10_RIGHT
+ ip address 192.168.0.1 255.255.255.252
+ tunnel source GigabitEthernet2
+ tunnel destination 30.40.50.1
+!
+interface Tunnel20
+ vrf forwarding VRF_20_RIGHT
+ ip address 192.168.0.5 255.255.255.252
+ tunnel source GigabitEthernet2
+ tunnel mode ipsec ipv4
+ tunnel destination 40.50.60.1
+ tunnel protection ipsec profile Cust_20_IKEv2_gcm256
+!
+interface GigabitEthernet1
+ no ip address
+ negotiation auto
+ no mop enabled
+ no mop sysid
+!
+interface GigabitEthernet1.10
+ encapsulation dot1Q 10
+ vrf forwarding VRF_10_LEFT
+ ip address 172.16.0.2 255.255.255.252
+ ip nat outside
+!
+interface GigabitEthernet1.20
+ encapsulation dot1Q 20
+ vrf forwarding VRF_20_LEFT
+ ip address 172.16.0.6 255.255.255.252
+ ip nat outside
+!
+interface GigabitEthernet2
+ ip address 20.30.40.1 255.255.255.252
+ negotiation auto
+ no mop enabled
+ no mop sysid
+!
+interface GigabitEthernet3
+ no ip address
+ shutdown
+ negotiation auto
+ no mop enabled
+ no mop sysid
+!
+interface GigabitEthernet4
+ no ip address
+ shutdown
+ negotiation auto
+ no mop enabled
+ no mop sysid
+!
+interface vasileft10
+ vrf forwarding VRF_10_LEFT
+ ip address 10.77.0.1 255.255.255.248
+ ip nat inside
+ no keepalive
+!
+interface vasileft20
+ vrf forwarding VRF_20_LEFT
+ ip address 10.77.0.9 255.255.255.248
+ ip nat inside
+ no keepalive
+!
+interface vasiright10
+ vrf forwarding VRF_10_RIGHT
+ ip address 10.77.0.6 255.255.255.248
+ no keepalive
+!
+interface vasiright20
+ vrf forwarding VRF_20_RIGHT
+ ip address 10.77.0.14 255.255.255.248
+ no keepalive
+!
+ip forward-protocol nd
+no ip http server
+ip http secure-server
+!
+ip nat inside source static 10.254.254.2 10.77.0.2 vrf VRF_10_LEFT
+ip nat inside source static 10.254.254.2 10.77.0.10 vrf VRF_20_LEFT
+ip route 10.77.0.0 255.255.255.248 vasileft10 10.77.0.1
+ip route 10.77.0.8 255.255.255.248 vasileft20 10.77.0.9
+ip route 30.40.50.0 255.255.255.252 GigabitEthernet2 20.30.40.2
+ip route 40.50.60.0 255.255.255.252 GigabitEthernet2 20.30.40.2
+ip route vrf VRF_10_LEFT 10.254.254.0 255.255.255.248 vasileft10 10.77.0.6
+ip route vrf VRF_10_LEFT 150.2.3.0 255.255.255.0 172.16.0.1
+ip route vrf VRF_10_RIGHT 10.254.254.0 255.255.255.248 Tunnel10
+ip route vrf VRF_10_RIGHT 150.2.3.0 255.255.255.0 vasiright10 10.77.0.1
+ip route vrf VRF_20_LEFT 10.254.254.0 255.255.255.248 vasileft20 10.77.0.14
+ip route vrf VRF_20_LEFT 150.2.3.0 255.255.255.0 172.16.0.5
+ip route vrf VRF_20_RIGHT 10.254.254.0 255.255.255.248 Tunnel20
+ip route vrf VRF_20_RIGHT 150.2.3.0 255.255.255.0 vasiright20 10.77.0.9
+!
+!
+!
+!
+!
+!
+!
+control-plane
+!
+!
+!
+!
+!         
+!
+line con 0
+ stopbits 1
+line vty 0
+ login
+ transport input ssh
+line vty 1
+ login
+ length 0
+ transport input ssh
+line vty 2 4
+ login
+ transport input ssh
+!
+call-home
+ ! If contact email address in call-home is configured as sch-smart-licensing@cisco.com
+ ! the email address configured in Cisco Smart License Portal will be used as contact email address to send SCH notifications.
+ contact-email-addr sch-smart-licensing@cisco.com
+ profile "CiscoTAC-1"
+  active
+  destination transport-method http
+!
+!
+!
+!
+!
+end
+
+VRFs#  
+
