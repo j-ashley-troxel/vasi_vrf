@@ -1,0 +1,361 @@
+
+
+[ISP]
+
+hostname ISP
+
+int g0/0
+ip address 20.30.40.2 255.255.255.252
+no shut
+
+int g0/1
+ip address 30.40.50.2 255.255.255.252
+no shut
+
+int g0/2
+ip address 40.50.60.2 255.255.255.252
+no shut
+
+int loopback 1
+ip address 2.2.2.2 255.255.255.255
+
+router ospf 1
+router-id 2.2.2.2
+network 2.2.2.2 0.0.0.0 area 0
+network 20.30.40.0 0.0.0.3 area 0
+network 30.40.50.0 0.0.0.3 area 0
+network 40.50.60.0 0.0.0.3 area 0
+
+
+-----------------------------------
+
+[Core]
+
+hostname Core
+
+int g0/1
+ip address 150.2.3.1 255.255.255.0
+no shut
+
+int g0/0
+no shut
+
+int g0/0.10
+encapsulation dot1q 10
+ip address 172.16.0.1 255.255.255.252
+no shut
+
+int g0/0.20
+encapsulation dot1q 20
+ip address 172.16.0.5 255.255.255.252
+no shut
+
+ip route 10.77.0.0 255.255.255.0 172.16.0.2
+
+
+-------------------------------------
+
+[Cust_10]
+hostname Cust_10
+
+int g0/0
+ip address 30.40.50.1 255.255.255.252
+no shut
+
+int g0/1
+ip address 10.254.254.1 255.255.255.248
+no shut
+
+int loopback 1
+ip address 3.3.3.3 255.255.255.255
+
+router ospf 1
+router-id 3.3.3.3
+network 3.3.3.3 0.0.0.0 area 0
+network 30.40.50.0 0.0.0.3 area 0
+
+#phase 1 proposal and policy
+crypto ikev2 proposal gcm256_prf-sha512_dh-21
+encryption aes-gcm-256
+prf sha512
+group 21
+
+crypto ikev2 policy 1
+proposal gcm256_prf-sha512_dh-21
+
+#phase 2 transform set
+crypto ipsec transform-set gcm256 esp-gcm 256
+
+#ikev2 keyring 
+crypto ikev2 keyring HQ_IKEv2_Keyring
+peer HQ_IKEv2_Peer
+address 20.30.40.1 255.255.255.255
+pre-shared-key test123
+
+#ikev2 profile
+crypto ikev2 profile HQ_IKEv2_Profile
+match identity remote address 20.30.40.1
+authentication local pre-share
+authentication remote pre-share
+keyring local HQ_IKEv2_Keyring
+
+#ipsec profile
+crypto ipsec profile HQ_IKEv2_gcm256
+set transform-set gcm256
+set ikev2-profile HQ_IKEv2_Profile
+
+interface tunnel 10
+ip address 192.168.0.2 255.255.255.252
+tunnel source gi0/0
+tunnel destination 20.30.40.1
+tunnel mode ipsec ipv4
+tunnel protection ipsec profile HQ_IKEv2_gcm256
+
+
+ip route 150.2.3.0 255.255.255.0 tunnel 10
+
+-------------------------------
+
+[Cust_20]
+
+hostname Cust_20
+
+int g0/0
+ip address 40.50.60.1 255.255.255.252
+no shut
+
+int g0/1
+ip address 10.254.254.1 255.255.255.248
+no shut
+
+int loopback 1
+ip address 4.4.4.4 255.255.255.255
+
+router ospf 1
+router-id 4.4.4.4
+network 4.4.4.4 0.0.0.0 area 0
+network 40.50.60.0 0.0.0.3 area 0
+
+#phase 1 proposal and policy
+crypto ikev2 proposal gcm256_prf-sha512_dh-21
+encryption aes-gcm-256
+prf sha512
+group 21
+
+crypto ikev2 policy 1
+proposal gcm256_prf-sha512_dh-21
+
+#phase 2 transform set
+crypto ipsec transform-set gcm256 esp-gcm 256
+
+#ikev2 keyring 
+crypto ikev2 keyring HQ_IKEv2_Keyring
+peer HQ_IKEv2_Peer
+address 20.30.40.1 255.255.255.255
+pre-shared-key test123
+
+#ikev2 profile
+crypto ikev2 profile HQ_IKEv2_Profile
+match identity remote address 20.30.40.1
+authentication local pre-share
+authentication remote pre-share
+keyring local HQ_IKEv2_Keyring
+
+#ipsec profile
+crypto ipsec profile HQ_IKEv2_gcm256
+set transform-set gcm256
+set ikev2-profile HQ_IKEv2_Profile
+
+
+#tunnel interface
+interface tunnel 20
+ip address 192.168.0.6 255.255.255.252
+tunnel mode ipsec ipv4
+tunnel source gi0/0
+tunnel destination 20.30.40.1
+tunnel protection ipsec profile HQ_IKEv2_gcm256
+
+ip route 150.2.3.0 255.255.255.0 tunnel 20
+
+
+-------------------------------
+
+
+[VRFs]
+
+hostname VRFs
+
+int g1
+no shut
+
+vrf definition VRF_10_LEFT
+rd 1:1
+address-family ipv4
+exit-address-family
+ 
+vrf definition VRF_10_RIGHT
+rd 2:2 
+address-family ipv4
+exit-address-family
+
+int g1.10
+ip nat outside
+encapsulation dot1q 10
+vrf forwarding VRF_10_LEFT
+ip address 172.16.0.2 255.255.255.252
+no shut
+
+int g2
+ip address 20.30.40.1 255.255.255.252
+no shut
+
+int loopback 1
+ip address 1.1.1.1 255.255.255.255
+
+router ospf 1
+router-id 1.1.1.1
+network 1.1.1.1 0.0.0.0 area 0
+network 20.30.40.0 0.0.0.3 area 0
+
+
+int vasileft10
+vrf forwarding VRF_10_LEFT
+ip address 10.77.0.1 255.255.255.248
+ip nat inside
+
+int vasiright10
+vrf forwarding VRF_10_RIGHT
+ip address 10.77.0.6 255.255.255.248
+
+#ingress traffic w/ destination 10.77.x.x from core - point to vasileft10
+ip route 10.77.0.0 255.255.255.248 vasileft10 10.77.0.1
+
+#vasi pair routing
+ip route vrf VRF_10_LEFT 10.254.254.0 255.255.255.248 vasileft10 10.77.0.6
+ip route vrf VRF_10_RIGHT 150.2.3.0 255.255.255.0 vasiright10 10.77.0.1
+
+#egress traffic to core w/ destination 150.2.3.x
+ip route vrf VRF_10_LEFT 150.2.3.0 255.255.255.0 172.16.0.1
+
+#translate customer host from 10.77.x.x to native IP 
+ip nat inside source static 10.254.254.2 10.77.0.2 vrf VRF_10_LEFT
+
+#ikev2 keyring 
+crypto ikev2 keyring Cust_10_IKEv2_Keyring
+peer Cust_10_IKEv2_Peer
+address 30.40.50.1 255.255.255.255
+pre-shared-key test123
+
+#ikev2 profile
+crypto ikev2 profile Cust_10_IKEv2_Profile
+match identity remote address 30.40.50.1
+authentication local pre-share
+authentication remote pre-share
+keyring local Cust_10_IKEv2_Keyring
+
+#ipsec profile
+crypto ipsec profile Cust_10_IKEv2_gcm256
+set transform-set gcm256
+set ikev2-profile Cust_10_IKEv2_Profile
+
+#tunnel interface to cust10
+interface tunnel 10
+description to Cust_10
+tunnel source g2
+tunnel destination 30.40.50.1
+tunnel mode ipsec ipv4
+tunnel protection ipsec profile Cust_10_IKEv2_gcm256
+vrf forwarding VRF_10_RIGHT
+ip address 192.168.0.1 255.255.255.252
+
+
+#route statement for cust10 remote network - point to tunnel10
+ip route vrf VRF_10_RIGHT 10.254.254.0 255.255.255.248 tunnel 10
+
+
+vrf definition VRF_20_LEFT
+rd 3:3
+address-family ipv4
+exit-address-family
+ 
+vrf definition VRF_20_RIGHT
+rd 4:4 
+address-family ipv4
+exit-address-family
+
+int g1.20
+ip nat outside
+encapsulation dot1q 20
+vrf forwarding VRF_20_LEFT
+ip address 172.16.0.6 255.255.255.252
+no shut
+
+#phase 1 proposal and policy
+crypto ikev2 proposal gcm256_prf-sha512_dh-21
+encryption aes-gcm-256
+prf sha512
+group 21
+
+crypto ikev2 policy 1
+proposal gcm256_prf-sha512_dh-21
+
+#phase 2 transform set
+crypto ipsec transform-set gcm256 esp-gcm 256
+
+#ikev2 keyring 
+crypto ikev2 keyring Cust_20_IKEv2_Keyring
+peer Cust_20_IKEv2_Peer
+address 40.50.60.1 255.255.255.255
+pre-shared-key test123
+
+#ikev2 profile
+crypto ikev2 profile Cust_20_IKEv2_Profile
+match identity remote address 40.50.60.1
+authentication local pre-share
+authentication remote pre-share
+keyring local Cust_20_IKEv2_Keyring
+
+#ipsec profile
+crypto ipsec profile Cust_20_IKEv2_gcm256
+set transform-set gcm256
+set ikev2-profile Cust_20_IKEv2_Profile
+
+
+#tunnel interface
+interface tunnel 20
+tunnel mode ipsec ipv4
+tunnel source g2
+tunnel destination 40.50.60.1
+vrf forwarding VRF_20_RIGHT
+ip address 192.168.0.5 255.255.255.252
+tunnel protection ipsec profile Cust_20_IKEv2_gcm256
+no shutdown
+
+ip route vrf VRF_20_RIGHT 10.254.254.0 255.255.255.248 tunnel 20
+
+int vasileft20
+vrf forwarding VRF_20_LEFT
+ip address 10.77.0.9 255.255.255.248
+ip nat inside
+
+int vasiright20
+vrf forwarding VRF_20_RIGHT
+ip address 10.77.0.14 255.255.255.248
+
+#ingress traffic w/ destination 10.77.x.x from core - point to vasileft10
+ip route 10.77.0.8 255.255.255.248 vasileft20 10.77.0.9
+
+
+#vasi pair routing
+ip route vrf VRF_20_LEFT 10.254.254.0 255.255.255.248 vasileft20 10.77.0.14
+ip route vrf VRF_20_RIGHT 150.2.3.0 255.255.255.0 vasiright20 10.77.0.9
+
+#egress traffic to core w/ destination 150.2.3.x
+ip route vrf VRF_20_LEFT 150.2.3.0 255.255.255.0 172.16.0.5
+
+#translate customer host from 10.77.x.x to native IP 
+ip nat inside source static 10.254.254.2 10.77.0.10 vrf VRF_20_LEFT
+
+
+
+-----------------------------
