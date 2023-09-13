@@ -406,12 +406,4 @@ ip route vrf VRF_30_RIGHT 10.77.0.16 255.255.255.248 tunnel 30
 
 ip nat outside source static 10.254.254.2 10.77.0.18 vrf VRF_30_RIGHT
 
-ip access-list extended filter_cust
-permit tcp 10.77.0.0 0.0.0.255 eq 22 80 443 150.2.3.0 0.0.0.255
-permit tcp 150.2.3.0 0.0.0.255 10.77.0.0 0.0.0.255 eq 22 80 443
-permit icmp 10.77.0.0 0.0.0.255 150.2.3.0 0.0.0.255
-permit icmp 150.2.3.0 0.0.0.255 10.77.0.0 0.0.0.255 
 
-int g1
-ip access-group filter_cust out
-ip access-group filter_cust in
