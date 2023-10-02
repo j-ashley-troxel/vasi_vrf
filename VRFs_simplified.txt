@@ -1,0 +1,292 @@
+
+[VRFs]
+#Catalyst 8000v 
+#Cisco IOS XE Software, Version 17.09.01a
+#Cisco IOS Software [Cupertino], Virtual XE Software (X86_64_LINUX_IOSD-UNIVERSALK9-M), Version #17.9.1a, RELEASE SOFTWARE (fc2)
+#required in CML2 due to crypto commands not available without smart license communication
+license boot level network-essentials addon dna-essentials
+
+-----------------------------------------------------------------------------------------------
+
+hostname VRFs
+
+int g1
+ip address 172.16.0.2 255.255.255.252
+no shut
+
+int g2
+ip address 20.30.40.1 255.255.255.252
+no shut
+
+vrf definition VRF_10_LEFT
+address-family ipv4
+exit-address-family
+
+vrf definition VRF_10_RIGHT
+address-family ipv4
+exit-address-family
+
+int loopback 1
+ip address 1.1.1.1 255.255.255.255
+
+router ospf 1
+router-id 1.1.1.1
+network 1.1.1.1 0.0.0.0 area 0
+network 20.30.40.0 0.0.0.3 area 0
+
+int vasileft10
+vrf forwarding VRF_10_LEFT
+ip address 2.0.0.1 255.255.255.252
+
+int vasiright10
+vrf forwarding VRF_10_RIGHT
+ip address 2.0.0.2 255.255.255.252
+ip nat inside
+
+crypto ikev2 proposal gcm256_prf-sha512_dh-21
+encryption aes-gcm-256
+prf sha512
+group 21
+
+crypto ikev2 policy 1
+proposal gcm256_prf-sha512_dh-21
+
+crypto ipsec transform-set gcm256 esp-gcm 256
+
+crypto ikev2 keyring Cust_10_IKEv2_Keyring
+peer Cust_10_IKEv2_Peer
+address 30.40.50.1 255.255.255.255
+pre-shared-key test123
+
+crypto ikev2 profile Cust_10_IKEv2_Profile
+match identity remote address 30.40.50.1
+authentication local pre-share
+authentication remote pre-share
+keyring local Cust_10_IKEv2_Keyring
+
+crypto ipsec profile Cust_10_IKEv2_gcm256
+set transform-set gcm256
+set ikev2-profile Cust_10_IKEv2_Profile
+
+interface tunnel 10
+description to Cust_10
+tunnel source gi2
+tunnel destination 30.40.50.1
+tunnel mode ipsec ipv4
+tunnel protection ipsec profile Cust_10_IKEv2_gcm256
+vrf forwarding VRF_10_RIGHT
+ip unnumbered gi2
+ip nat outside
+
+ip route 10.77.0.0 255.255.255.248 vasileft10 
+
+ip route vrf VRF_10_LEFT 10.77.0.0 255.255.255.248 vasileft10 
+ip route vrf VRF_10_LEFT 150.2.3.0 255.255.255.0 gi1 172.16.0.1
+
+ip route vrf VRF_10_RIGHT 150.2.3.0 255.255.255.0 vasiright10 
+ip route vrf VRF_10_RIGHT 0.0.0.0 0.0.0.0 tunnel 10
+
+ip nat outside source static 10.254.254.2 10.77.0.2 vrf VRF_10_RIGHT
+
+crypto ikev2 keyring Cust_20_IKEv2_Keyring
+peer Cust_20_IKEv2_Peer
+address 40.50.60.1 255.255.255.255
+pre-shared-key test123
+
+crypto ikev2 profile Cust_20_IKEv2_Profile
+match identity remote address 40.50.60.1
+authentication local pre-share
+authentication remote pre-share
+keyring local Cust_20_IKEv2_Keyring
+
+crypto ipsec profile Cust_20_IKEv2_gcm256
+set transform-set gcm256
+set ikev2-profile Cust_20_IKEv2_Profile
+
+vrf definition VRF_20_LEFT
+address-family ipv4
+exit-address-family
+ 
+vrf definition VRF_20_RIGHT
+address-family ipv4
+exit-address-family
+
+int vasileft20
+vrf forwarding VRF_20_LEFT
+ip address 2.0.0.1 255.255.255.252
+
+int vasiright20
+vrf forwarding VRF_20_RIGHT
+ip address 2.0.0.2 255.255.255.252
+ip nat inside
+
+interface tunnel 20
+tunnel mode ipsec ipv4
+tunnel source gi2
+tunnel destination 40.50.60.1
+vrf forwarding VRF_20_RIGHT
+tunnel protection ipsec profile Cust_20_IKEv2_gcm256
+ip unnumbered gi2
+ip nat outside
+
+ip route 10.77.0.8 255.255.255.248 vasileft20
+
+ip route vrf VRF_20_LEFT 10.77.0.8 255.255.255.248 vasileft20
+ip route vrf VRF_20_LEFT 150.2.3.0 255.255.255.0 gi1 172.16.0.1
+
+ip route vrf VRF_20_RIGHT 150.2.3.0 255.255.255.0 vasiright20
+ip route vrf VRF_20_RIGHT 0.0.0.0 0.0.0.0 tunnel 20
+
+ip nat outside source static 10.254.254.2 10.77.0.10 vrf VRF_20_RIGHT
+
+crypto ikev2 keyring Cust_30_IKEv2_Keyring
+peer Cust_30_IKEv2_Peer
+address 50.60.70.1 255.255.255.255
+pre-shared-key test123
+
+crypto ikev2 profile Cust_30_IKEv2_Profile
+match identity remote address 50.60.70.1
+authentication local pre-share
+authentication remote pre-share
+keyring local Cust_30_IKEv2_Keyring
+
+crypto ipsec profile Cust_30_IKEv2_gcm256
+set transform-set gcm256
+set ikev2-profile Cust_30_IKEv2_Profile
+
+vrf definition VRF_30_LEFT
+address-family ipv4
+exit-address-family
+ 
+vrf definition VRF_30_RIGHT
+address-family ipv4
+exit-address-family
+
+int vasileft30
+vrf forwarding VRF_30_LEFT
+ip address 2.0.0.1 255.255.255.252
+
+int vasiright30
+vrf forwarding VRF_30_RIGHT
+ip address 2.0.0.2 255.255.255.252
+ip nat inside
+
+interface tunnel 30
+tunnel mode ipsec ipv4
+tunnel source g2
+tunnel destination 50.60.70.1
+vrf forwarding VRF_30_RIGHT
+tunnel protection ipsec profile Cust_30_IKEv2_gcm256
+ip unnumbered g2
+ip nat outside
+
+ip route 10.77.0.16 255.255.255.248 vasileft30
+
+ip route vrf VRF_30_LEFT 10.77.0.16 255.255.255.248 vasileft30
+ip route vrf VRF_30_LEFT 150.2.3.0 255.255.255.0 g1 172.16.0.1
+
+ip route vrf VRF_30_RIGHT 150.2.3.0 255.255.255.0 vasiright30 
+ip route vrf VRF_30_RIGHT 0.0.0.0 0.0.0.0 tunnel 30
+
+ip nat outside source static 10.254.254.2 10.77.0.18 vrf VRF_30_RIGHT
+
+
+-----------------------------------------------------------------------------------------------
+
+
+#global routing table
+
+     10.0.0.0/29 is subnetted, 3 subnets
+S        10.77.0.0 is directly connected, vasileft10
+S        10.77.0.8 is directly connected, vasileft20
+S        10.77.0.16 is directly connected, vasileft30
+
+
+#VRF_10_LEFT routing table
+	2.0.0.0/8 is variably subnetted, 2 subnets, 2 masks
+C        2.0.0.0/30 is directly connected, vasileft10
+L        2.0.0.1/32 is directly connected, vasileft10
+      10.0.0.0/29 is subnetted, 1 subnets
+S        10.77.0.0 is directly connected, vasileft10
+      150.2.0.0/24 is subnetted, 1 subnets
+S        150.2.3.0 [1/0] via 172.16.0.1, GigabitEthernet1
+
+
+#VRF_10_RIGHT routing table
+S*    0.0.0.0/0 is directly connected, Tunnel10
+      2.0.0.0/8 is variably subnetted, 2 subnets, 2 masks
+C        2.0.0.0/30 is directly connected, vasiright10
+L        2.0.0.2/32 is directly connected, vasiright10
+      150.2.0.0/24 is subnetted, 1 subnets
+S        150.2.3.0 is directly connected, vasiright10
+
+
+#VRF_20_LEFT routing table
+      2.0.0.0/8 is variably subnetted, 2 subnets, 2 masks
+C        2.0.0.0/30 is directly connected, vasileft20
+L        2.0.0.1/32 is directly connected, vasileft20
+      10.0.0.0/29 is subnetted, 1 subnets
+S        10.77.0.8 is directly connected, vasileft20
+      150.2.0.0/24 is subnetted, 1 subnets
+S        150.2.3.0 [1/0] via 172.16.0.1, GigabitEthernet1
+
+
+#VRF_20_RIGHT routing table
+S*    0.0.0.0/0 is directly connected, Tunnel20
+      2.0.0.0/8 is variably subnetted, 2 subnets, 2 masks
+C        2.0.0.0/30 is directly connected, vasiright20
+L        2.0.0.2/32 is directly connected, vasiright20
+      150.2.0.0/24 is subnetted, 1 subnets
+S        150.2.3.0 is directly connected, vasiright20
+
+
+#VRF_30_LEFT routing table
+      2.0.0.0/8 is variably subnetted, 2 subnets, 2 masks
+C        2.0.0.0/30 is directly connected, vasileft30
+L        2.0.0.1/32 is directly connected, vasileft30
+      10.0.0.0/29 is subnetted, 1 subnets
+S        10.77.0.16 is directly connected, vasileft30
+      150.2.0.0/24 is subnetted, 1 subnets
+S        150.2.3.0 [1/0] via 172.16.0.1, GigabitEthernet1
+
+
+#VRF_30_RIGHT routing table
+S*    0.0.0.0/0 is directly connected, Tunnel30
+      2.0.0.0/8 is variably subnetted, 2 subnets, 2 masks
+C        2.0.0.0/30 is directly connected, vasiright30
+L        2.0.0.2/32 is directly connected, vasiright30
+      150.2.0.0/24 is subnetted, 1 subnets
+S        150.2.3.0 is directly connected, vasiright30
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
